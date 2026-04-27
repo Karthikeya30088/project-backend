@@ -12,6 +12,7 @@ import com.fsad.assignment.repository.StudentRepository;
 import com.fsad.assignment.repository.SubmissionRepository;
 import com.fsad.assignment.repository.TeacherRepository;
 import com.fsad.assignment.util.IdGenerator;
+
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -19,10 +20,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.nio.file.StandardCopyOption;
+import java.nio.file.*;
 import java.time.LocalDateTime;
 import java.util.Comparator;
 import java.util.List;
@@ -51,6 +49,8 @@ public class PortalService {
         Files.createDirectories(this.uploadPath);
     }
 
+    // ================= AUTH =================
+
     public AuthDtos.AuthResponse loginTeacher(AuthDtos.LoginRequest request) {
         Teacher teacher = teacherRepository.findByEmailAndPassword(request.email(), request.password())
                 .orElseThrow(() -> new ApiException(HttpStatus.UNAUTHORIZED, "Invalid teacher credentials."));
@@ -78,6 +78,8 @@ public class PortalService {
 
         return new AuthDtos.AuthResponse(toStudentUser(studentRepository.save(student)));
     }
+
+    // ================= DASHBOARDS =================
 
     public PortalDtos.TeacherDashboardResponse getTeacherDashboard() {
         Teacher teacher = teacherRepository.findAll().stream()
@@ -114,13 +116,20 @@ public class PortalService {
                 .map(this::toTaskResponse)
                 .toList();
 
-        List<PortalDtos.SubmissionResponse> submissions = submissionRepository.findByStudent_IdOrderBySubmittedAtDesc(studentId)
-                .stream()
-                .map(this::toSubmissionResponse)
-                .toList();
+        List<PortalDtos.SubmissionResponse> submissions =
+                submissionRepository.findByStudent_IdOrderBySubmittedAtDesc(studentId)
+                        .stream()
+                        .map(this::toSubmissionResponse)
+                        .toList();
 
-        return new PortalDtos.StudentDashboardResponse(toStudentSummary(student), tasks, submissions);
+        return new PortalDtos.StudentDashboardResponse(
+                toStudentSummary(student),
+                tasks,
+                submissions
+        );
     }
+
+    // ================= TASK =================
 
     @Transactional
     public PortalDtos.TaskResponse createTask(PortalDtos.CreateTaskRequest request) {
@@ -138,6 +147,8 @@ public class PortalService {
         return toTaskResponse(taskRepository.save(task));
     }
 
+    // ================= SUBMISSION =================
+
     @Transactional
     public PortalDtos.SubmissionResponse createOrUpdateSubmission(
             String taskId,
@@ -145,18 +156,26 @@ public class PortalService {
             String comment,
             MultipartFile file
     ) throws IOException {
+
         AssignmentTask task = taskRepository.findById(taskId)
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Task or student not found."));
+
         Student student = studentRepository.findById(studentId)
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Task or student not found."));
 
-        String safeName = file.getOriginalFilename() == null ? "submission-file" : file.getOriginalFilename().replaceAll("\\s+", "-");
+        String safeName = file.getOriginalFilename() == null
+                ? "submission-file"
+                : file.getOriginalFilename().replaceAll("\\s+", "-");
+
         String storedFileName = System.currentTimeMillis() + "-" + safeName;
+
         Path targetPath = uploadPath.resolve(storedFileName);
         Files.copy(file.getInputStream(), targetPath, StandardCopyOption.REPLACE_EXISTING);
 
         boolean existingSubmission = false;
-        Submission submission = submissionRepository.findByTask_IdAndStudent_Id(taskId, studentId)
+
+        Submission submission = submissionRepository
+                .findByTask_IdAndStudent_Id(taskId, studentId)
                 .orElseGet(Submission::new);
 
         if (submission.getId() == null) {
@@ -180,11 +199,14 @@ public class PortalService {
     }
 
     @Transactional
-    public PortalDtos.SubmissionResponse gradeSubmission(String submissionId, PortalDtos.GradeSubmissionRequest request) {
+    public PortalDtos.SubmissionResponse gradeSubmission(String submissionId,
+                                                         PortalDtos.GradeSubmissionRequest request) {
+
         Submission submission = submissionRepository.findById(submissionId)
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Submission not found."));
 
         boolean verified = request.verified() != null && request.verified();
+
         submission.setGrade(request.grade() == null ? "" : request.grade());
         submission.setFeedback(request.feedback() == null ? "" : request.feedback());
         submission.setVerified(verified);
@@ -193,6 +215,18 @@ public class PortalService {
 
         return toSubmissionResponse(submissionRepository.save(submission));
     }
+
+    // ================= DELETE SUBMISSION (NEW) =================
+
+    @Transactional
+    public void deleteSubmission(String id) {
+        Submission submission = submissionRepository.findById(id)
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Submission not found."));
+
+        submissionRepository.delete(submission);
+    }
+
+    // ================= UTIL =================
 
     public PortalDtos.HealthResponse health() {
         return new PortalDtos.HealthResponse(true, "assignment_submission_system");
@@ -207,41 +241,33 @@ public class PortalService {
             teacher.setPassword("teacher123");
             teacherRepository.save(teacher);
         }
-
-        if (studentRepository.count() == 0) {
-            Student student = new Student();
-            student.setId("student-1");
-            student.setName("Rahul Kumar");
-            student.setEmail("rahul@student.com");
-            student.setPassword("student123");
-            student.setGradeLevel("Class 10");
-            studentRepository.save(student);
-        }
-
-        if (taskRepository.count() == 0) {
-            Teacher teacher = teacherRepository.findById("teacher-1")
-                    .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Teacher not found."));
-            AssignmentTask task = new AssignmentTask();
-            task.setId("task-1");
-            task.setTeacher(teacher);
-            task.setTitle("Science Assignment");
-            task.setDescription("Prepare a short report on renewable energy sources.");
-            task.setDueDate(java.time.LocalDate.of(2026, 4, 15));
-            task.setCreatedAt(LocalDateTime.of(2026, 4, 7, 8, 0));
-            taskRepository.save(task);
-        }
     }
 
     private AuthDtos.UserResponse toTeacherUser(Teacher teacher) {
-        return new AuthDtos.UserResponse(teacher.getId(), "teacher", teacher.getName(), teacher.getEmail(), null);
+        return new AuthDtos.UserResponse(
+                teacher.getId(), "teacher",
+                teacher.getName(),
+                teacher.getEmail(),
+                null
+        );
     }
 
     private AuthDtos.UserResponse toStudentUser(Student student) {
-        return new AuthDtos.UserResponse(student.getId(), "student", student.getName(), student.getEmail(), student.getGradeLevel());
+        return new AuthDtos.UserResponse(
+                student.getId(), "student",
+                student.getName(),
+                student.getEmail(),
+                student.getGradeLevel()
+        );
     }
 
     private PortalDtos.StudentSummary toStudentSummary(Student student) {
-        return new PortalDtos.StudentSummary(student.getId(), student.getName(), student.getEmail(), student.getGradeLevel());
+        return new PortalDtos.StudentSummary(
+                student.getId(),
+                student.getName(),
+                student.getEmail(),
+                student.getGradeLevel()
+        );
     }
 
     private PortalDtos.TaskResponse toTaskResponse(AssignmentTask task) {
