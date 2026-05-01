@@ -1,20 +1,28 @@
 package com.fsad.assignment.controller;
 
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
-
 import java.util.Map;
 
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RestController;
+
 @RestController
-@RequestMapping("/api")
 public class HealthController {
 
-    @GetMapping("/health")
+    // 🔥 This handles the ROOT URL "/"
+    @GetMapping("/")
+    public Map<String, Object> home() {
+        return Map.of(
+            "ok", true,
+            "message", "Backend is running"
+        );
+    }
+
+    // Existing API
+    @GetMapping("/api/health")
     public Map<String, Object> health() {
         return Map.of(
-                "ok", true,
-                "message", "Backend is running"
+            "ok", true,
+            "message", "Backend is running"
         );
     }
 }
